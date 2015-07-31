@@ -1,0 +1,22 @@
+hcimin
+======
+
+This binary includes some tools from the bluez stack that allow configuration
+and usage of bluetooth dongles as beacons. It is a striped down version of
+commands from hcitool, hciconfig and bdaddr. The following commands are
+currently supported (this is subject to change):
+
+ * reset:   Reset HCI device
+ * vreset:  Reset HCI device using vendor specific commands
+ * up:      Open and initialize HCI device
+ * down:    Close HCI device
+ * addr:    Try setting devices MAC address (device dependent)
+ * cmd:     Send command to HCI device (params are hex)
+ * scan:    Passively scan for bluetooth beacons in the vincinity
+
+In particular the scan command is subject to change and/or be extended. Right
+now the utitlity is designed to configure and show bluetooth devices beaconing
+in the vincinity (i.e. iBeacon).
+
+It also allows temporarily changing the MAC of bluetooth devices (till the
+next power cycle).
