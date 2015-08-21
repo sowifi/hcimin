@@ -49,6 +49,9 @@
  * definitions.
  ******************************************/
 
+#define HCI_MAX_DEV	16
+
+
 struct hci_request {
 	uint16_t ogf;
 	uint16_t ocf;
@@ -268,6 +271,53 @@ typedef struct {
 } __attribute__ ((packed)) remote_name_req_cp;
 #define REMOTE_NAME_REQ_CP_SIZE 10
 
+/* Ioctl requests structures */
+struct hci_dev_stats {
+	uint32_t err_rx;
+	uint32_t err_tx;
+	uint32_t cmd_tx;
+	uint32_t evt_rx;
+	uint32_t acl_tx;
+	uint32_t acl_rx;
+	uint32_t sco_tx;
+	uint32_t sco_rx;
+	uint32_t byte_rx;
+	uint32_t byte_tx;
+};
+
+
+struct hci_dev_info {
+	uint16_t dev_id;
+	char     name[8];
+
+	bdaddr_t bdaddr;
+
+	uint32_t flags;
+	uint8_t  type;
+
+	uint8_t  features[8];
+
+	uint32_t pkt_type;
+	uint32_t link_policy;
+	uint32_t link_mode;
+
+	uint16_t acl_mtu;
+	uint16_t acl_pkts;
+	uint16_t sco_mtu;
+	uint16_t sco_pkts;
+
+	struct   hci_dev_stats stat;
+};
+
+struct hci_dev_req {
+	uint16_t dev_id;
+	uint32_t dev_opt;
+};
+
+struct hci_dev_list_req {
+	uint16_t dev_num;
+	struct hci_dev_req dev_req[0];	/* hci_dev_req structures */
+};
 
 
 
@@ -358,11 +408,13 @@ static int hci_open_dev(int dev_id)
 		return dd;
 
 	/* Bind socket to the HCI device */
-	memset(&a, 0, sizeof(a));
-	a.hci_family = AF_BLUETOOTH;
-	a.hci_dev = dev_id;
-	if (bind(dd, (struct sockaddr *) &a, sizeof(a)) < 0)
-		goto failed;
+	if (dev_id > 0) {
+		memset(&a, 0, sizeof(a));
+		a.hci_family = AF_BLUETOOTH;
+		a.hci_dev = dev_id;
+		if (bind(dd, (struct sockaddr *) &a, sizeof(a)) < 0)
+			goto failed;
+	}
 
 	return dd;
 
@@ -650,7 +702,6 @@ int hci_le_set_scan_parameters(int dd, uint8_t type,
  * End of copied data
  ******************************************/
 
-
 /* The following functions are from bluetooth.c. */
 
 static int bachk(const char *str)
@@ -678,6 +729,11 @@ static int bachk(const char *str)
 	return 0;
 }
 
+static int ba2str(const bdaddr_t *ba, char *str)
+{
+	return sprintf(str, "%2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X",
+		ba->b[5], ba->b[4], ba->b[3], ba->b[2], ba->b[1], ba->b[0]);
+}
 
 static int str2ba(const char *str, bdaddr_t *ba)
 {
@@ -716,6 +772,68 @@ static void hex_dump(char *pref, int width, unsigned char *buf, int len)
 
 
 /** */
+
+static int cmd_list(int ctl, int hdev, int argc, char *argv[])
+{
+	struct hci_dev_list_req *dl;
+	struct hci_dev_req *dr;
+	int i;
+
+	if (!(dl = malloc(HCI_MAX_DEV * sizeof(struct hci_dev_req) +
+		sizeof(uint16_t)))) {
+		perror("Can't allocate memory");
+		return 1;
+	}
+	dl->dev_num = HCI_MAX_DEV;
+	dr = dl->dev_req;
+
+	if (ioctl(ctl, HCIGETDEVLIST, (void *) dl) < 0) {
+		perror("Can't get device list");
+		return 1;
+	}
+
+	for (i = 0; i< dl->dev_num; i++) {
+		printf("hci%i\n", (dr+i)->dev_id);
+	}
+	return 0;
+}
+
+static int cmd_info(int ctl, int hdev, int argc, char *argv[])
+{
+	struct hci_dev_info di;
+	struct hci_dev_stats *st = &di.stat;
+
+	di.dev_id = hdev;
+	if (ioctl(ctl, HCIGETDEVINFO, (void *) &di)) {
+		perror("Can't get device info");
+		return 1;
+	}
+
+	char addr[18];
+
+	ba2str(&di.bdaddr, addr);
+
+	printf("%s:\tType: %x  Bus: %x\n", di.name,
+					(di.type & 0x30) >> 4,
+					di.type & 0x0f);
+	printf("\tBD Address: %s  ACL MTU: %d:%d  SCO MTU: %d:%d\n",
+					addr, di.acl_mtu, di.acl_pkts,
+						di.sco_mtu, di.sco_pkts);
+
+
+	printf("\tFlags: 0x%08X\n", di.flags);
+
+	printf("\tRX bytes:%d acl:%d sco:%d events:%d errors:%d\n",
+		st->byte_rx, st->acl_rx, st->sco_rx, st->evt_rx, st->err_rx);
+
+	printf("\tTX bytes:%d acl:%d sco:%d commands:%d errors:%d\n",
+		st->byte_tx, st->acl_tx, st->sco_tx, st->cmd_tx, st->err_tx);
+
+	printf("\n");
+
+	return 0;
+}
+
 static int cmd_cmd(int ctl, int hdev, int argc, char *argv[])
 {
 	struct hci_filter flt;
@@ -1042,18 +1160,21 @@ static int cmd_scan(int ctl, int hdev, int argc, char *argv[])
 
 static struct {
 	char *cmd;
+	int reqdev;
 	int (*func)(int ctl, int hdev, int argc, char *argv[]);
 	char *opt;
 	char *doc;
 } commands[] = {
-	{ "reset", cmd_reset, NULL, "Reset HCI device" },
-	{ "vreset", cmd_vreset, NULL, "Reset HCI device using vendor specific commands" },
-	{ "up", cmd_up, NULL, "Open and initialize HCI device" },
-	{ "down", cmd_down, NULL, "Close HCI device" },
-	{ "addr", cmd_addr, "<bdaddr>", "Try setting devices MAC address (device dependent)" },
-	{ "cmd", cmd_cmd, "<ogf> <ocf> [parameters]", "Send command to HCI device (params are hex)" },
-	{ "scan", cmd_scan, NULL, "Passively scan for bluetooth beacons in the vincinity" },
-	{ NULL, NULL, NULL, NULL },
+	{ "list", 0, cmd_list, NULL, "Show HCI device information" },
+	{ "info", 1, cmd_info, NULL, "Show HCI device information" },
+	{ "reset", 1, cmd_reset, NULL, "Reset HCI device" },
+	{ "vreset", 1, cmd_vreset, NULL, "Reset HCI device using vendor specific commands" },
+	{ "up", 1, cmd_up, NULL, "Open and initialize HCI device" },
+	{ "down", 1, cmd_down, NULL, "Close HCI device" },
+	{ "addr", 1, cmd_addr, "<bdaddr>", "Try setting devices MAC address (device dependent)" },
+	{ "cmd", 1, cmd_cmd, "<ogf> <ocf> [parameters]", "Send command to HCI device (params are hex)" },
+	{ "scan", 1, cmd_scan, NULL, "Passively scan for bluetooth beacons in the vincinity" },
+	{ NULL, 0, NULL, NULL, NULL },
 };
 
 
@@ -1071,7 +1192,7 @@ static void usage(int argc, char *argv[])
 		app = argv[0];
 
 	printf(APP_NAME " v" SOURCE_VERSION "\n");
-	printf("Usage: %s hciX command\n\n", app);
+	printf("Usage: %s (hciX command|list)\n\n", app);
 	printf("with command being one of:\n");
 
 	for (cmd = 0; commands[cmd].cmd != NULL; cmd++) {
@@ -1094,17 +1215,18 @@ int main(int argc, char *argv[])
 	int cmd;
 	int hdev;
 	int ctl;
+	int strip;
 
 	/* Do not flash the info, that way it doesn't hurt to reset it all the time. */
 	transient = 1;
 
-	if (argc < 3) {
+	if (argc < 2) {
 		usage(argc, argv);
 		return 1;
 	}
 
 	for (cmd = 0; commands[cmd].cmd; cmd++) {
-		if (strcmp(argv[2], commands[cmd].cmd) == 0)
+		if (strcmp(argv[1], commands[cmd].cmd) == 0)
 			break;
 	}
 
@@ -1113,23 +1235,30 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (strlen(argv[1]) < 4 || strncmp("hci", argv[1], 3) != 0) {
-		printf("Not a valid HCI device.\n");
-		return 1;
-	}
+	if (commands[cmd].reqdev) {
+		strip = 3;
 
-	hdev = atol(argv[1] + 3);
+		if (strlen(argv[2]) < 4 || strncmp("hci", argv[2], 3) != 0) {
+			printf("Not a valid HCI device.\n");
+			return 1;
+		}
+
+		hdev = atol(argv[2] + 3);
+	} else {
+		strip = 2;
+		hdev = -1;
+	}
 
 	/* Have a command, open up device now. */
 	ctl = hci_open_dev(hdev);
 	if (ctl < 0) {
-		printf("Could not open HCI device.\n");
+		printf("Could not open control socket or HCI device.\n");
 		return 1;
 	}
 
 	/* Device is open, and we have command to handle everything, call into
 	 * the command now.*/
-	ret = commands[cmd].func(ctl, hdev, argc - 3, argv + 3);
+	ret = commands[cmd].func(ctl, hdev, argc - strip, argv + strip);
 
 	close(ctl);
 
