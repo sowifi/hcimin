@@ -408,7 +408,7 @@ static int hci_open_dev(int dev_id)
 		return dd;
 
 	/* Bind socket to the HCI device */
-	if (dev_id > 0) {
+	if (dev_id >= 0) {
 		memset(&a, 0, sizeof(a));
 		a.hci_family = AF_BLUETOOTH;
 		a.hci_dev = dev_id;
