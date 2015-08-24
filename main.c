@@ -1192,7 +1192,7 @@ static void usage(int argc, char *argv[])
 		app = argv[0];
 
 	printf(APP_NAME " v" SOURCE_VERSION "\n");
-	printf("Usage: %s (hciX command|list)\n\n", app);
+	printf("Usage: %s command [hciX] [arguments]\n\n", app);
 	printf("with command being one of:\n");
 
 	for (cmd = 0; commands[cmd].cmd != NULL; cmd++) {
@@ -1238,8 +1238,8 @@ int main(int argc, char *argv[])
 	if (commands[cmd].reqdev) {
 		strip = 3;
 
-		if (strlen(argv[2]) < 4 || strncmp("hci", argv[2], 3) != 0) {
-			printf("Not a valid HCI device.\n");
+		if (argc < 3 || strlen(argv[2]) < 4 || strncmp("hci", argv[2], 3) != 0) {
+			printf("Not a valid HCI device given.\n");
 			return 1;
 		}
 
