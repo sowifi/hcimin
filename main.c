@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/uio.h>
 #include <ctype.h>
 #include "bluetooth.h"
 
